@@ -19,8 +19,7 @@ spec:
     spec:
       containers:
         - name: demo-app
-          image: DOCKERHUB_USERNAME/jenkins-k8s-demo:latest
-
+          image: saiprasad18/jenkins-k8s-demo:v1
           ports:
             - containerPort: 5000
 
