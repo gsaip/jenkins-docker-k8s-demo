@@ -1,0 +1,92 @@
+
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = 'DOCKERHUB_USERNAME/jenkins-k8s-demo'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh '''
+                    python3 -m venv .venv
+                    .venv/bin/pip install -r requirements.txt
+                    .venv/bin/python -m compileall -q app.py
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    docker build \
+                      -t ${IMAGE_NAME}:${BUILD_NUMBER} .
+                '''
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    sh '''
+                        set +x
+                        echo "$DOCKER_PASS" | docker login \
+                          -u "$DOCKER_USER" --password-stdin
+
+                        docker push ${IMAGE_NAME}:${BUILD_NUMBER}
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([
+                    file(
+                        credentialsId: 'kubeconfig-file',
+                        variable: 'KUBECONFIG'
+                    )
+                ]) {
+                    sh '''
+                        sed "s|DOCKERHUB_USERNAME/jenkins-k8s-demo:latest|${IMAGE_NAME}:${BUILD_NUMBER}|g" \
+                          k8s/deployment.yaml > deployment-ci.yaml
+
+                        kubectl apply -f deployment-ci.yaml
+                        kubectl apply -f k8s/service.yaml
+
+                        kubectl rollout status deployment/demo-app \
+                          --timeout=120s
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Build and deployment completed successfully!'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the Jenkins console output.'
+        }
+
+        always {
+            sh 'rm -f deployment-ci.yaml || true'
+        }
+    }
+}
