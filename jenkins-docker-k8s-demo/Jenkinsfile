@@ -4,6 +4,7 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'saiprasad18/jenkins-k8s-demo'
+        APP_DIR = 'jenkins-docker-k8s-demo'
     }
 
     stages {
@@ -15,23 +16,27 @@ pipeline {
 
         stage('Test Python Application') {
             steps {
-                sh '''
-                    set -eu
-                    python3 -m py_compile app.py
-                    python3 -m venv .venv
-                    .venv/bin/pip install -r requirements.txt
-                    .venv/bin/python -c "import app; print('Flask application imported successfully')"
-                '''
+                dir("${APP_DIR}") {
+                    sh '''
+                        set -eu
+                        python3 -m py_compile app.py
+                        python3 -m venv .venv
+                        .venv/bin/pip install -r requirements.txt
+                        .venv/bin/python -c "import app; print('Flask application imported successfully')"
+                    '''
+                }
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh '''
-                    set -eu
-                    docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .
-                    docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest
-                '''
+                dir("${APP_DIR}") {
+                    sh '''
+                        set -eu
+                        docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .
+                        docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest
+                    '''
+                }
             }
         }
 
@@ -66,7 +71,7 @@ pipeline {
             echo 'Pipeline failed. Review the stage logs.'
         }
         always {
-            sh 'rm -rf .venv || true'
+            sh 'rm -rf jenkins-docker-k8s-demo/.venv || true'
         }
     }
 }
