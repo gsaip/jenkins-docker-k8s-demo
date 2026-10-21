@@ -3,7 +3,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'DOCKERHUB_USERNAME/jenkins-k8s-demo'
+        IMAGE_NAME = 'saiprasad18/jenkins-k8s-demo'
     }
 
     stages {
@@ -13,12 +13,14 @@ pipeline {
             }
         }
 
-        stage('Test') {
+        stage('Test Python Application') {
             steps {
                 sh '''
+                    set -eu
+                    python3 -m py_compile app.py
                     python3 -m venv .venv
                     .venv/bin/pip install -r requirements.txt
-                    .venv/bin/python -m compileall -q app.py
+                    .venv/bin/python -c "import app; print('Flask application imported successfully')"
                 '''
             }
         }
@@ -26,8 +28,9 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build \
-                      -t ${IMAGE_NAME}:${BUILD_NUMBER} .
+                    set -eu
+                    docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .
+                    docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest
                 '''
             }
         }
@@ -43,33 +46,12 @@ pipeline {
                 ]) {
                     sh '''
                         set +x
+                        set -eu
                         echo "$DOCKER_PASS" | docker login \
-                          -u "$DOCKER_USER" --password-stdin
-
+                            -u "$DOCKER_USER" --password-stdin
                         docker push ${IMAGE_NAME}:${BUILD_NUMBER}
+                        docker push ${IMAGE_NAME}:latest
                         docker logout
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy to Kubernetes') {
-            steps {
-                withCredentials([
-                    file(
-                        credentialsId: 'kubeconfig-file',
-                        variable: 'KUBECONFIG'
-                    )
-                ]) {
-                    sh '''
-                        sed "s|DOCKERHUB_USERNAME/jenkins-k8s-demo:latest|${IMAGE_NAME}:${BUILD_NUMBER}|g" \
-                          k8s/deployment.yaml > deployment-ci.yaml
-
-                        kubectl apply -f deployment-ci.yaml
-                        kubectl apply -f k8s/service.yaml
-
-                        kubectl rollout status deployment/demo-app \
-                          --timeout=120s
                     '''
                 }
             }
@@ -78,15 +60,13 @@ pipeline {
 
     post {
         success {
-            echo 'Build and deployment completed successfully!'
+            echo 'Application tested and Docker image pushed successfully.'
         }
-
         failure {
-            echo 'Pipeline failed. Check the Jenkins console output.'
+            echo 'Pipeline failed. Review the stage logs.'
         }
-
         always {
-            sh 'rm -f deployment-ci.yaml || true'
+            sh 'rm -rf .venv || true'
         }
     }
 }
