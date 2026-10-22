@@ -4,7 +4,7 @@ pipeline {
     environment {
         IMAGE_NAME      = 'demo-app'
         IMAGE_TAG       = "${BUILD_NUMBER}"
-        DOCKER_CREDS_ID = 'dockerhub-credentials' // Jenkins Credential ID for Docker Hub
+        DOCKER_CREDS_ID = 'dockerhub-creds' // Jenkins Credential ID for Docker Hub
         KUBECONFIG      = '/var/lib/jenkins/.kube/config'
     }
 
