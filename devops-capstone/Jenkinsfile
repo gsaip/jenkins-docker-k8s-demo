@@ -4,14 +4,13 @@ pipeline {
     environment {
         IMAGE_NAME      = 'demo-app'
         IMAGE_TAG       = "${BUILD_NUMBER}"
-        DOCKER_CREDS_ID = 'dockerhub-creds' // Jenkins Credential ID for Docker Hub
+        DOCKER_CREDS_ID = 'dockerhub-creds'
         KUBECONFIG      = '/var/lib/jenkins/.kube/config'
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                // Automatically checkout the repo configured in the Jenkins UI
                 checkout scm
             }
         }
@@ -19,7 +18,6 @@ pipeline {
         stage('Code Linting / Test') {
             steps {
                 echo 'Running tests...'
-                // Insert unit test execution commands here (e.g., pytest)
             }
         }
 
@@ -28,7 +26,8 @@ pipeline {
                 script {
                     withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
                         echo "Building Docker image ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}..."
-                        sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ./app"
+                        // Updated build context path to devops-capstone/app
+                        sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ./devops-capstone/app"
                         sh "docker tag ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_USER}/${IMAGE_NAME}:latest"
                     }
                 }
@@ -51,12 +50,12 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
-                        // Dynamically substitute image placeholder in deployment manifest
-                        sh "sed -i 's|YOUR_DOCKERHUB_USERNAME|${DOCKER_USER}|g' k8s/deployment.yaml"
-                        sh "sed -i 's|BUILD_NUMBER|${IMAGE_TAG}|g' k8s/deployment.yaml"
+                        // Updated path to point to devops-capstone/k8s/
+                        sh "sed -i 's|YOUR_DOCKERHUB_USERNAME|${DOCKER_USER}|g' devops-capstone/k8s/deployment.yaml"
+                        sh "sed -i 's|BUILD_NUMBER|${IMAGE_TAG}|g' devops-capstone/k8s/deployment.yaml"
 
                         sh "kubectl get nodes"
-                        sh "kubectl apply -f k8s/"
+                        sh "kubectl apply -f devops-capstone/k8s/"
                         sh "kubectl rollout status deployment/demo-app"
                     }
                 }
@@ -68,7 +67,6 @@ pipeline {
         always {
             script {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
-                    // Clean up local images to free disk space on the VM
                     sh "docker rmi ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} || true"
                 }
             }
