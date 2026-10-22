@@ -2,33 +2,35 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_HUB_USER = 'your-dockerhub-username'
         IMAGE_NAME      = 'demo-app'
         IMAGE_TAG       = "${BUILD_NUMBER}"
-        KUBECONFIG_ID   = 'k8s-kubeconfig' // Jenkins Credential ID for K8s access
         DOCKER_CREDS_ID = 'dockerhub-credentials' // Jenkins Credential ID for Docker Hub
+        KUBECONFIG      = '/var/lib/jenkins/.kube/config'
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/your-username/devops-capstone.git'
+                // Automatically checkout the repo configured in the Jenkins UI
+                checkout scm
             }
         }
 
         stage('Code Linting / Test') {
             steps {
                 echo 'Running tests...'
-                // Insert unit test commands here (e.g., pytest)
+                // Insert unit test execution commands here (e.g., pytest)
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "Building Docker image ${DOCKER_HUB_USER}/${IMAGE_NAME}:${IMAGE_TAG}..."
-                    sh "docker build -t ${DOCKER_HUB_USER}/${IMAGE_NAME}:${IMAGE_TAG} ./app"
-                    sh "docker tag ${DOCKER_HUB_USER}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_HUB_USER}/${IMAGE_NAME}:latest"
+                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
+                        echo "Building Docker image ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}..."
+                        sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ./app"
+                        sh "docker tag ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                    }
                 }
             }
         }
@@ -38,28 +40,38 @@ pipeline {
                 script {
                     withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
                         sh "echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin"
-                        sh "docker push ${DOCKER_HUB_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
-                        sh "docker push ${DOCKER_HUB_USER}/${IMAGE_NAME}:latest"
+                        sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:latest"
                     }
                 }
             }
         }
 
-      stage('Deploy to Kubernetes') {
-    environment {
-        KUBECONFIG = '/var/lib/jenkins/.kube/config'
-    }
-    steps {
-        sh "kubectl get nodes"
-        sh "kubectl apply -f k8s/"
-    }
-}
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
+                        // Dynamically substitute image placeholder in deployment manifest
+                        sh "sed -i 's|YOUR_DOCKERHUB_USERNAME|${DOCKER_USER}|g' k8s/deployment.yaml"
+                        sh "sed -i 's|BUILD_NUMBER|${IMAGE_TAG}|g' k8s/deployment.yaml"
+
+                        sh "kubectl get nodes"
+                        sh "kubectl apply -f k8s/"
+                        sh "kubectl rollout status deployment/demo-app"
+                    }
+                }
+            }
+        }
     }
 
     post {
         always {
-            // Clean up Docker images locally to save space
-            sh "docker rmi ${DOCKER_HUB_USER}/${IMAGE_NAME}:${IMAGE_TAG} || true"
+            script {
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
+                    // Clean up local images to free disk space on the VM
+                    sh "docker rmi ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG} || true"
+                }
+            }
         }
         success {
             echo "Deployment successfully executed!"
